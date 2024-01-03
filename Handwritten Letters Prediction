@@ -1,0 +1,113 @@
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+from keras.models import Sequential
+from keras.layers import Dense, Flatten, Conv2D, MaxPool2D, Dropout
+from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.callbacks import ReduceROnPlateu, EarlySropping
+from tensorflow.keras.utils import to_categorical
+from keras.optimizers import Adam
+from keras.callbacks import ReduceLROnPlateau, EarlyStopping
+from keras.utils import np_utils
+from sklearn.utils import shuffle
+from tqdm import tqdm_notebook
+from keras.datasets import mnist
+from sklearn.model_selection import train_test_split
+from google.colab import drive
+
+
+drive.mount('/content/drive')
+
+data_path = '/content/drive/MyDrive/A-Z Handwritten Dataset'
+data = pd.read_csv(data_path + '/A_Z Handwritten Data.csv', header=None).astype('float32')
+
+x = data.drop([0], axis=1)
+y = data[0]
+
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+x_train = np.reshape(x_train.values, (x_train.shape[0], 28, 28))
+x_test = np.reshape(x_test.values, (x_test.shape[0], 28, 28))
+
+word_dict = {i: chr(ord('A') + i) for i in range(26)}
+
+x_train = x_train.reshape(x_train.shape[0], x_train.shape[1], x_train.shape[2], 1)
+x_test = x_test.reshape(x_test.shape[0], x_test.shape[1], x_test.shape[2], 1)
+
+y_train_OHE = to_categorical(y_train, num_classes=26, dtype='int')
+y_test_OHE = to_categorical(y_test, num_classes=26, dtype='int')
+
+model = Sequential()
+model.add(Conv2D(filters=32, kernel_size=(3, 3), activation='relu', input_shape=(28, 28, 1)))
+model.add(MaxPool2D(pool_size=(2, 2), strides=2))
+
+model.add(Conv2D(filters=64, kernel_size=(3, 3), activation='relu', padding='same'))
+model.add(MaxPool2D(pool_size=(2, 2), strides=2))
+
+model.add(Conv2D(filters=128, kernel_size=(3, 3), activation='relu', padding='valid'))
+model.add(MaxPool2D(pool_size=(2, 2), strides=2))
+
+model.add(Flatten())
+
+model.add(Dense(64, activation="relu"))
+model.add(Dense(128, activation="relu"))
+
+model.add(Dense(26, activation="softmax"))
+model.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=1, min_lr=0.0001)
+early_stop = EarlyStopping(monitor='val_loss', patience=2, verbose=1, mode='auto')
+
+# Assuming x_train and y_train_OHE are your training data and labels
+history = model.fit(x_train, y_train_OHE, epochs=5, validation_data=(x_test, y_test_OHE), callbacks=[reduce_lr, early_stop])
+
+print("Train Loss:", history.history['loss'])
+print("Train Accuracy:", history.history['accuracy'])
+print("Validation Loss:", history.history['val_loss'])
+print("Validation Accuracy:", history.history['val_accuracy'])
+
+model.save('/content/drive/MyDrive/A-Z Handwritten Dataset/model_v5')
+
+scores = model.evaluate(x_test, y_test_OHE, verbose=0)
+print("Accuracy:%.2f%%" % (scores[1] * 100))
+
+# Corrected test_X and test_yOHE to x_test and y_test_OHE
+fig, axes = plt.subplots(3, 3, figsize=(8, 9))
+axes = axes.flatten()
+
+for i, ax in enumerate(axes):
+    img = np.reshape(x_test[i], (28, 28))
+    ax.imshow(img, cmap="Greys")
+
+    pred = word_dict[np.argmax(y_test_OHE[i])]
+    ax.set_title("Prediction: " + pred)
+
+plt.show()
+
+from keras.models import load_model
+
+model = load_model('/content/drive/MyDrive/A-Z Handwritten Dataset/model_v5')
+
+import cv2
+import numpy as np
+from google.colab.patches import cv2_imshow
+
+img = cv2.imread('/content/drive/MyDrive/A-Z Handwritten Dataset/b.jpg')
+img_copy = img.copy()
+img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+img = cv2.resize(img, (28, 28))
+img_copy = cv2.GaussianBlur(img_copy, (7, 7), 0)
+img_gray = cv2.cvtColor(img_copy, cv2.COLOR_BGR2GRAY)
+_, img_thresh = cv2.threshold(img_gray, 100, 255, cv2.THRESH_BINARY_INV)
+
+img_final = cv2.resize(img_thresh, (28, 28))
+img_final = np.reshape(img_final, (1, 28, 28, 1))
+img_final = img_final / 255.0
+
+predictions = model.predict(img_final)
+img_pred = word_dict[np.argmax(predictions)]
+
+# Display the image with the prediction
+cv2.putText(img, "Prediction: " + img_pred, (20, 40), cv2.FONT_HERSHEY_DUPLEX, 1.3, color=(0, 0, 0))
+cv2_imshow(img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
